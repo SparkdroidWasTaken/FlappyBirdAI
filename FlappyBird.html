@@ -1,0 +1,378 @@
+<canvas id="box" width="500" height="500" style="border:0px solid black"></canvas>
+</canvas>
+<style>
+body{
+margin:0;
+overflow: hidden;
+}
+</style>
+<script src="NeuralNetwork.js"></script>
+<script>
+  var box = document.getElementById("box")
+  box.width = innerWidth
+  box.height = innerHeight
+  pen = box.getContext("2d")
+  pen.fillStyle = "rgba(100,100,255,1)"
+  pen.fillRect(0,0,box.width,box.height)
+  //the population of birds
+  let bird_count = 500
+  let generation = 1
+  let bestScore = 0
+  let CurrentbestScore = 0
+  //timer for spawning pipes
+  let timer = 0
+  let cycles = 1
+  var PipeSpace = 125
+  let GameDifficultly = 1
+  let PipeSpeed = 3
+  let BirdDeathCount = 0
+  //Utility functions
+  function InRange(value,min,max){
+  return value >= Math.min(min,max) && value <= Math.max(min,max);
+}
+function Interact(x,y,object){
+  return InRange(x,object.x,(object.x + object.width)) && InRange(y,object.y,(object.y + object.height))
+}
+  //Stat Boxes
+  class Stat{
+    constructor(y,width,Information,data,increment,Llimit,Hlimit){
+        this.x = 0
+        this.y = y
+        this.width = width
+        this.height = 20
+        this.info = Information
+        this.data = data
+        this.increment = increment
+        if(Llimit){
+            this.Llimit = Llimit
+        }
+        if(Hlimit){
+            this.Hlimit = Hlimit
+        }
+        this.BeenSelected = false
+        this.color = "black"
+    }
+    update(){
+        this.x = this.x
+        this.y = this.y
+        this.width = this.width
+        this.height = 20
+        this.info = this.info
+        this.data = this.data
+        if(this.Llimit){
+            this.Llimit = this.Llimit
+        }
+        if(this.Hlimit){
+            this.Hlimit = this.Hlimit
+        }
+        if(this.BeenSelected){
+            pen.fillStyle = "yellow"
+            pen.strokeStyle = "yellow"
+        }else{
+            pen.fillStyle = this.color
+            pen.strokeStyle = this.color
+        }
+        pen.font= "20px Arial"
+        if(this.info == "Evolution Speed"){
+            pen.fillText(this.info+":"+this.data+"x",this.x,this.y+17)
+        }else if(this.info == "Game Difficultly"){
+            pen.fillText(this.info+":"+Math.round(this.data*10)/10,this.x,this.y+17)
+        }else{
+            pen.fillText(this.info+":"+this.data,this.x,this.y+17)
+        }
+    }
+  }
+  let Evolution_Speed_data = new Stat(85,(17+cycles.toString().length)*10,"Evolution Speed",cycles,1,0)
+  let Pipe_Spacing_data = new Stat(105,(13+PipeSpace.toString().length)*10,"Pipe Spacing",PipeSpace,1,75)
+  let Pipe_Speed_data = new Stat(125,(11+PipeSpeed.toString().length)*10,"Pipe Speed",PipeSpeed,1,1)
+  let Game_Difficulty_data = new Stat(145,(16+GameDifficultly.toString().length)*10,"Game Difficultly",GameDifficultly,0.1,1,2)
+  let Population_data = new Stat(165,(16+bird_count.toString().length)*10,"Population Size",bird_count,1,1)
+  let stats = []
+  let ChosenStat_data;
+  stats.push(Evolution_Speed_data)
+  stats.push(Pipe_Spacing_data)
+  stats.push(Pipe_Speed_data)
+  stats.push(Game_Difficulty_data)
+  stats.push(Population_data)
+  let ChosenStat = stats[0]
+  //clicking stats
+  document.addEventListener("click",(pew)=>{
+    var x = pew.clientX
+    var y = pew.clientY
+    for(let i = 0; i < stats.length; i++){
+        if(Interact(Math.abs(x),y,stats[i])){
+            stats[i].BeenSelected = true
+            ChosenStat = stats[i]
+        }
+    }
+  })
+  //the bird is a CUBE
+  class bird{
+    constructor(brain){
+        this.x = 300
+        this.y = box.height/2
+        this.width = 20
+        this.height = 20
+        this.ogcolor = "yellow"
+        //pick a random colour, there's probably a better way of doing this
+        this.color = `rgba(${Math.floor(Math.random() * (255 - 0 + 1) + 0)},${Math.floor(Math.random() * (255 - 0 + 1) + 0)},${Math.floor(Math.random() * (255 - 0 + 1) + 0)},0.3)`
+        this.gravity = 1
+        this.y_speed = 0
+        this.UpForce = 15
+        this.score = 0
+        this.isDead = false
+        this.inputs = []
+        this.inputsCount = 10
+            this.brain = new NeuralNetwork([this.inputsCount,5,1])
+    }
+    restart(){
+        this.x = 300
+        this.y = box.height/2
+        this.color = `rgba(${Math.floor(Math.random() * (255 - 0 + 1) + 0)},${Math.floor(Math.random() * (255 - 0 + 1) + 0)},${Math.floor(Math.random() * (255 - 0 + 1) + 0)},0.3)`
+        this.gravity = 1
+        this.y_speed = 0
+        this.UpForce = 15
+        this.score = 0
+    }
+    draw(){
+        pen.fillStyle = this.color
+        pen.fillRect(this.x,this.y,this.width,this.height)
+        //the eye
+        pen.beginPath()
+        pen.fillStyle = "black"
+        pen.arc((this.x+this.width/2)+(this.width/4),(this.y+this.height/2)-(this.height/8),4,Math.PI,0)
+        pen.fill()
+        pen.beginPath()
+        pen.fillStyle = "white"
+        pen.arc((this.x+this.width/2)+(this.width/6),(this.y+this.height/2)-(this.height/5),2,0,2*Math.PI)
+        pen.fill()
+    }
+    think(pipes){
+        let closest = pipes[0]
+        let closestD = Infinity
+        for(let i = 0; i < pipes.length; i++){
+            let d = pipes[i].x - this.x
+            if(d < closestD && d > -closest.width){
+                closest = pipes[i]
+                closestD = d
+            }
+        }
+        this.inputs[0] = this.y
+        this.inputs[1] = this.y_speed
+        this.inputs[2] = (this.y-closest.top_height)
+        this.inputs[3] = (this.y-closest.bottom_y)
+        this.inputs[4] = (this.x-closest.x)
+        this.inputs[5] = (this.x-closest.x+closest.width)
+        this.inputs[6] = this.UpForce
+         this.inputs[7] = GameDifficultly
+        this.inputs[8] = PipeSpace
+        this.inputs[9] = PipeSpeed
+
+    }
+    update(){
+        this.y_speed+= this.gravity
+        this.y_speed *=0.9
+        this.y += this.y_speed
+        this.score++
+        this.think(pipes)
+        let outputs = NeuralNetwork.feedForward(this.inputs,this.brain)
+        //console.table(this.inputs)
+        //console.log(outputs)
+        if(outputs[0]){
+            this.flap()
+        }
+    }
+    flap(){
+        this.y_speed -= this.UpForce
+    }
+}
+//THE PIPE
+class Pipe{
+    constructor(){
+        this.x = box.width
+        this.HasCollectedScore = false
+        this.top_height = Math.floor(Math.random() * ((box.height/2) - (box.height/35)+1) + (box.height/35))
+        this.top_y = 300
+        this.spacing = PipeSpace
+        this.bottom_y = this.top_height+this.spacing
+        this.width = 150
+        this.bottom_height = box.height-(this.top_height+this.spacing)
+        this.color = "rgb(100,255,100)"
+    }
+    draw(){
+        pen.fillStyle = this.color
+        pen.fillRect(this.x,0,this.width,this.top_height)
+        pen.fillRect(this.x,this.bottom_y,this.width,this.bottom_height)
+    }
+    update(){
+        this.x -= PipeSpeed
+    }
+}
+//popuplation stuff
+function CheckPopulation(){
+    let BestBird = SavedBirds[0]
+    //get the best bird
+    for(let i = 0; i<SavedBirds.length; i++){
+        if(SavedBirds[i].score > BestBird.score){
+            BestBird = SavedBirds[i]
+        }
+    }
+    if(BestBird.score > bestScore){
+        bestScore = BestBird.score
+    }
+    BestBird.restart()
+    birds.push(BestBird)
+    //save the brain
+    localStorage.setItem("bestFlappyBrain",JSON.stringify(BestBird.brain))
+        for(let i = 0; i < bird_count; i++){
+            birds.push(new bird)
+        }
+        for(let i = 0; i < birds.length; i++){
+            birds[i].brain = JSON.parse(localStorage.getItem("bestFlappyBrain"))
+            if(i!=0){
+                NeuralNetwork.mutate(birds[i].brain,0.25)
+            }
+        }
+        localStorage.removeItem("bestFlappyBrain")
+    SavedBirds = []
+}
+//BIRDS
+    let birds = []
+    let SavedBirds = []
+    birds.push(new bird())
+    for(let i = 0; i < bird_count; i++){
+        birds[i] = new bird()
+    }
+    //pips
+    let pipes = []
+    pipes.push(new Pipe())
+    document.addEventListener("keydown",(pew)=>{
+        switch (pew.keyCode) {
+            case 39:
+                if(ChosenStat.Hlimit && ChosenStat.data >= ChosenStat.Hlimit){
+
+                }else{
+                    ChosenStat.data +=ChosenStat.increment
+                }
+                break;
+            case 37:
+            if(ChosenStat.Llimit && ChosenStat.data <= ChosenStat.Llimit){
+
+            }else{
+                ChosenStat.data -=ChosenStat.increment
+            }
+                break;
+        }
+    })
+    function GameOver(){
+        pipes = []
+        CheckPopulation()
+        generation++
+        timer = 0
+    }
+    //this is the game
+    function game(){
+        pen.fillStyle = "rgba(100,100,255,1)"
+        pen.fillRect(0,0,box.width,box.height)
+        //updating stuff
+          //chosen stat stuff
+  switch(ChosenStat.info){
+    case "Evolution Speed":
+        cycles = ChosenStat.data
+    break
+    case "Pipe Spacing":
+        PipeSpace = ChosenStat.data
+    break
+    case "Pipe Speed":
+        PipeSpeed = ChosenStat.data
+    break
+    case "Game Difficultly":
+        GameDifficultly = ChosenStat.data
+    break
+    case "Population Size":
+        bird_count = ChosenStat.data
+    break
+  }
+        for(let i = 0; i < cycles; i++){
+        timer++
+        CurrentbestScore = birds[0].score
+        birds.forEach(birdy=>{
+            birdy.update()
+            if (birdy.score >= CurrentbestScore){
+                CurrentbestScore = birdy.score
+            }
+        })
+        for(let i = 0; i < pipes.length; i++){
+            pipes[i].update()
+            if(pipes[i].x < -pipes[i].width){
+                pipes.splice(i,1)
+            }
+            for(let j = birds.length-1; j >=0 ; j--){
+            //checking if the player has passed the pipe
+            if(birds[j].x > pipes[i].x && Math.abs(birds[j].x-pipes[i].x) >=pipes[i].width && !pipes[i].HasCollectedScore){
+                birds[j].score +=10
+                pipes[i].HasCollectedScore = true
+            }
+            //checking if the bird has hit the pipe
+            if(pipes.length >= 1){
+                //touches the top pipe
+                if(birds[j].x+birds[j].width >= pipes[i].x && birds[j].x <= pipes[i].x+pipes[i].width && 0 <= birds[j].y+birds[j].height&& birds[j].y <= 0+pipes[i].top_height){
+                    birds[j].isDead = true
+                }
+                //touching the bottom pipe
+                 else if(birds[j].x+birds[j].width >= pipes[i].x && birds[j].x <= pipes[i].x+pipes[i].width && pipes[i].bottom_y <= birds[j].y+birds[j].height&& birds[j].y <= pipes[i].bottom_y+pipes[i].bottom_height){
+                    birds[j].isDead = true
+                }
+            }
+        }
+        }
+        //if a bird dies
+        birds.forEach((birdy,i)=>{
+            if(birdy.isDead){
+                SavedBirds.push(birdy)
+                BirdDeathCount++
+                birds.splice(i,1)
+            }
+        })
+        //if all the birds die
+        if(birds.length <= 0){
+            GameOver()
+        }
+        //checking if the player has touched the floor or went too high
+        birds.forEach((birdy,i)=>{
+            if(birdy.y <= 0){
+                birdy.isDead = true
+            }
+            if(birdy.y >=box.height-birdy.height){
+                birdy.isDead = true
+                //birdy.y = box.height-birdy.height
+            }
+        })
+        if(timer % Math.round(Math.round(((175/PipeSpeed)*3)+Math.round(50/PipeSpeed))/GameDifficultly) == 0){
+            pipes.push(new Pipe())
+        }
+    }
+        //drawing the graphics
+        birds.forEach(birdy=>{
+            birdy.draw()
+        })
+        for(let i = 0; i < pipes.length; i++){
+            pipes[i].draw()
+        }
+        for(let i = 0; i < stats.length; i++){
+            if(ChosenStat != stats[i]){
+                stats[i].BeenSelected = false
+            }
+            stats[i].update()
+        }
+        pen.fillStyle = "black"
+        pen.font= "20px Arial";
+        pen.fillText("score: Bruh",0,20)
+        pen.fillText("generation:"+generation,0,40)
+        pen.fillText("BestScore:"+bestScore,0,60)
+        pen.fillText("CurrentBestScore:"+CurrentbestScore,0,80)
+
+        requestAnimationFrame(game)
+    }
+    game()
+</script>
